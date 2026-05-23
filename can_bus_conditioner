@@ -1,0 +1,35 @@
+module can_bus_conditioner (
+    input  logic clk,
+    input  logic rst_n,
+    input  logic async_rx_pad_in,
+    output logic rx_bit_clean
+);
+    logic sync_ff1, sync_ff2;
+    logic [4:0] vote_sr;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            sync_ff1 <= 1'b1;
+            sync_ff2 <= 1'b1;
+        end else begin
+            sync_ff1 <= async_rx_pad_in;
+            sync_ff2 <= sync_ff1;
+        end
+    end
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            vote_sr      <= 5'b11111;
+            rx_bit_clean <= 1'b1;
+        end else begin
+            vote_sr <= {vote_sr[3:0], sync_ff2};
+            case (vote_sr)
+                5'b11111: rx_bit_clean <= 1'b1;
+                5'b01111, 5'b10111, 5'b11011, 5'b11101, 5'b11110: rx_bit_clean <= 1'b1;
+                5'b00111, 5'b01011, 5'b01101, 5'b01110, 5'b10011,
+                5'b10101, 5'b10110, 5'b11001, 5'b11010, 5'b11100: rx_bit_clean <= 1'b1;
+                default: rx_bit_clean <= 1'b0; 
+            endcase
+        end
+    end
+endmodule

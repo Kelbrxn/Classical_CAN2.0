@@ -1,0 +1,57 @@
+module interrupt_manager (
+    input  logic        clk,
+    input  logic        rst_n,
+    input  logic        tx_done_pulse,  
+    input  logic        rx_done_pulse,  
+    input  logic        error_pulse,    
+    input  logic        bus_off_pulse,  
+    input  logic        arb_lost_pulse, 
+    input  logic        tx_empty_pulse, 
+    input  logic        rx_oflw_pulse,  
+    input  logic        cs_intr,
+    input  logic [7:0]  bus_addr, 
+    input  logic        bus_wr_e, 
+    input  logic [31:0] bus_wr_data,
+    output logic [31:0] bus_rd_data,
+    output logic        irq
+);
+    localparam XCAN_ISR_OFFSET = 8'h1C; 
+    localparam XCAN_IER_OFFSET = 8'h20; 
+    localparam XCAN_ICR_OFFSET = 8'h24; 
+
+    localparam BIT_ARBLST = 0, BIT_TXOK = 1, BIT_RXOK = 4, BIT_RXOFLW = 6;
+    localparam BIT_ERROR = 8, BIT_BSOFF = 9, BIT_TXFEMP = 14;
+
+    logic [31:0] IER, ISR; 
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) IER <= 32'h0;
+        else if (cs_intr && bus_wr_e && (bus_addr == XCAN_IER_OFFSET)) IER <= bus_wr_data;
+    end
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) ISR <= 32'h0;
+        else begin
+            if (cs_intr && bus_wr_e && (bus_addr == XCAN_ICR_OFFSET)) ISR <= ISR & ~bus_wr_data; 
+            if (arb_lost_pulse) ISR[BIT_ARBLST] <= 1'b1;
+            if (tx_done_pulse)  ISR[BIT_TXOK]   <= 1'b1;
+            if (rx_done_pulse)  ISR[BIT_RXOK]   <= 1'b1;
+            if (rx_oflw_pulse)  ISR[BIT_RXOFLW] <= 1'b1;
+            if (error_pulse)    ISR[BIT_ERROR]  <= 1'b1;
+            if (bus_off_pulse)  ISR[BIT_BSOFF]  <= 1'b1;
+            if (tx_empty_pulse) ISR[BIT_TXFEMP] <= 1'b1;
+        end
+    end
+
+    always_comb begin
+        bus_rd_data = 32'h0;
+        if (cs_intr) begin
+            case (bus_addr)
+                XCAN_ISR_OFFSET: bus_rd_data = ISR;
+                XCAN_IER_OFFSET: bus_rd_data = IER;
+                XCAN_ICR_OFFSET: bus_rd_data = 32'h0; 
+            endcase
+        end
+    end
+    assign irq = |(ISR & IER); 
+endmodule

@@ -1,0 +1,18 @@
+module can_routing_matrix (
+    input  logic mode_loopback,
+    input  logic mode_silent,
+    input  logic rx_bit_clean,
+    input  logic tx_bit_from_fsm,
+    output logic tx_pad_out,
+    output logic rx_bit_to_core
+);
+    always_comb begin
+        if (mode_loopback || mode_silent) tx_pad_out = 1'b1; 
+        else tx_pad_out = tx_bit_from_fsm;
+    end
+
+    always_comb begin
+        if (mode_loopback) rx_bit_to_core = tx_bit_from_fsm;
+        else rx_bit_to_core = rx_bit_clean;
+    end
+endmodule

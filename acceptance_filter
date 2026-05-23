@@ -1,0 +1,53 @@
+module acceptance_filter_bank #(
+    parameter DATA_WIDTH = 32
+)(
+    input  logic                  clk,
+    input  logic                  rst_n,
+    input  logic                  cs_af,       
+    input  logic [11:0]           bus_addr,    
+    input  logic                  bus_wr_e, 
+    input  logic [DATA_WIDTH-1:0] bus_wr_data,
+    output logic [DATA_WIDTH-1:0] bus_rd_data,
+    input  logic [DATA_WIDTH-1:0] rx_id_raw,   
+    output logic                  accept_frame 
+);
+    localparam LEGACY_AFR_MASK  = 12'h060;
+    localparam LEGACY_AFR_ID    = 12'h064;
+    localparam CANFD2_AFR_MASK  = 12'hA00;
+    localparam CANFD2_AFR_ID    = 12'hA04;
+
+    logic [31:0] mask_reg   [1:0];
+    logic [31:0] filter_reg [1:0];
+    logic [1:0]  enable;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mask_reg[0]   <= 32'h0; filter_reg[0] <= 32'h0;
+            mask_reg[1]   <= 32'h0; filter_reg[1] <= 32'h0;
+            enable        <= 2'b11; 
+        end else if (cs_af && bus_wr_e) begin
+            case (bus_addr)
+                LEGACY_AFR_MASK: mask_reg[0]   <= bus_wr_data;
+                LEGACY_AFR_ID:   filter_reg[0] <= bus_wr_data;
+                CANFD2_AFR_MASK: mask_reg[1]   <= bus_wr_data;
+                CANFD2_AFR_ID:   filter_reg[1] <= bus_wr_data;
+            endcase
+        end
+    end
+
+    always_comb begin
+        bus_rd_data = 32'h0;
+        if (cs_af) begin
+            case (bus_addr)
+                LEGACY_AFR_MASK: bus_rd_data = mask_reg[0];
+                LEGACY_AFR_ID:   bus_rd_data = filter_reg[0];
+                CANFD2_AFR_MASK: bus_rd_data = mask_reg[1];
+                CANFD2_AFR_ID:   bus_rd_data = filter_reg[1];
+            endcase
+        end
+    end
+
+    wire match0 = enable[0] ? (((rx_id_raw ^ filter_reg[0]) & mask_reg[0]) == 32'h0) : 1'b0;
+    wire match1 = enable[1] ? (((rx_id_raw ^ filter_reg[1]) & mask_reg[1]) == 32'h0) : 1'b0;
+    assign accept_frame = match0 | match1;
+endmodule 
