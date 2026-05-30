@@ -617,15 +617,11 @@ module protocol_fsm #(
     logic [6:0] ctrl_target; 
     logic [3:0] current_dlc; 
     logic [6:0] data_target;
-    
-    // --- Η ΔΙΟΡΘΩΣΗ ΕΙΝΑΙ ΕΔΩ ---
-    // Τα is_tx_node και is_ext_id πρέπει να είναι logic γιατί παίρνουν τιμή μέσα στο always_ff
     logic is_tx_node, is_ext_id;
     wire  is_rx_node, is_std_id;
     
     assign is_rx_node = ~is_tx_node;
     assign is_std_id  = ~is_ext_id;
-    // ----------------------------
 
     assign core_is_config = (sys_state == SYS_OFFLINE);
     assign core_is_normal = (sys_state == SYS_ACTIVE || sys_state == SYS_PASSIVE);
