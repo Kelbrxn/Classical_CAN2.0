@@ -225,7 +225,7 @@ always_comb begin
             end
         end
     end
-endmodule
+
     logic [7:0] brp_cnt;
     logic       tq_pulse;
     
