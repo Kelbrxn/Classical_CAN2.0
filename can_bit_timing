@@ -1,121 +1,55 @@
 module can_bit_timing (
-    input  logic        clk,            // 125 MHz System Clock
-    input  logic        rst_n,          
-    
-    // Configuration from Register Bank (Raw 32-bit registers)
-    input  logic [31:0] reg_baud,       // Nominal Prescaler (BRPR)
-    input  logic [31:0] reg_btr,        // Nominal Bit Timing (BTR)
-    input  logic [31:0] reg_f_baud,     // Data Prescaler (F_BRPR)
-    input  logic [31:0] reg_f_btr,      // Data Bit Timing (F_BTR)
-    
-    // Control from FSM & Dedicated Sync Module
-    input  logic        is_data_phase,  // 0 for CAN 2.0, Switched by FSM for FD
-    input  logic        sync_restart,   // Hard Sync from FSM (resets counters)
-    
-    // Re-Sync Modifiers from Sync Module (SJW application)
-    input  logic [7:0]  tseg1_modifier, // Added to stretch the bit (Resync)
-    input  logic [7:0]  tseg2_modifier, // Subtracted to shrink the bit (Resync)
-    
-    // Outputs to Protocol FSM / CRC / Sync Module
+    input  logic        clk,
+    input  logic        rst_n,
+    input  logic [31:0] baud_reg, 
+    input  logic [31:0] btr_reg,  
     output logic        sample_point_en,
-    output logic        bit_done_en,
-    output logic [7:0]  current_seg_cnt // So Sync module knows our current phase
+    output logic        bit_done_en
 );
+    wire [7:0] tseg1 = btr_reg[7:0];
+    wire [7:0] tseg2 = btr_reg[14:8];
+    wire [7:0] total_tq = 8'd1 + tseg1 + tseg2; 
 
-    // --- 1. Xilinx Register Decoding ---
-    logic [7:0] nom_brp, data_brp;
-    logic [7:0] tseg1, tseg2;
-    logic [7:0] active_brp;
-
-    // BRP is bits [7:0] of BRPR
-    assign nom_brp  = reg_baud[7:0]; 
-    assign data_brp = reg_f_baud[7:0];
-
-    // Decode BTR based on active gear
-    // In Xilinx: TSEG1 is [3:0] (Classical) or [5:0] (FD)
-    // In Xilinx: TSEG2 is [6:4] (Classical) or [11:8] (FD)
-    // For simplicity in a unified engine, we extract them dynamically:
-    always_comb begin
-        if (is_data_phase) begin
-            tseg1 = {2'b0, reg_f_btr[5:0]};
-            tseg2 = {4'b0, reg_f_btr[11:8]};
-        end else begin
-            tseg1 = {4'b0, reg_btr[3:0]};
-            tseg2 = {5'b0, reg_btr[6:4]};
-        end
-    end
-
-    // The "Gear Shifter"
-    assign active_brp = is_data_phase ? data_brp : nom_brp;
-
-    // --- 2. Internal Signals ---
-    logic [7:0] tq_cnt;                 // Prescaler counter
-    logic [7:0] seg_cnt;                // Segment (TQ) counter
-    logic       tq_tick;                // Pulse every Time Quantum
+    logic [7:0] brp_cnt;
+    logic       tq_pulse;
     
-    assign current_seg_cnt = seg_cnt;
-
-    // --- 3. Stage 1: The Prescaler (TQ Generator) ---
-    // Since active_brp is (BRP - 1), counting from 0 to active_brp 
-    // takes exactly (active_brp + 1) clock cycles. This is mathematically perfect.
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            tq_cnt  <= 8'd0;
-            tq_tick <= 1'b0;
-        end else if (sync_restart) begin
-            tq_cnt  <= 8'd0;
-            tq_tick <= 1'b0;
+            brp_cnt  <= 8'd0;
+            tq_pulse <= 1'b0;
         end else begin
-            if (tq_cnt >= active_brp) begin
-                tq_cnt  <= 8'd0;
-                tq_tick <= 1'b1;
+            if (brp_cnt >= baud_reg[7:0]) begin
+                brp_cnt  <= 8'd0;
+                tq_pulse <= 1'b1;
             end else begin
-                tq_cnt  <= tq_cnt + 1'b1;
-                tq_tick <= 1'b0;
+                brp_cnt  <= brp_cnt + 1'b1;
+                tq_pulse <= 1'b0;
             end
         end
     end
 
-    // --- 4. Stage 2: The Segment Counter ---
+    logic [7:0] tq_cnt;
+
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            seg_cnt         <= 8'd0;
+            tq_cnt          <= 8'd0;
             sample_point_en <= 1'b0;
             bit_done_en     <= 1'b0;
-        end else if (sync_restart) begin
-            seg_cnt         <= 8'd0;
-            sample_point_en <= 1'b0;
-            bit_done_en     <= 1'b0;
-        end else if (tq_tick) begin
-            
-            // MATH EXPLANATION:
-            // Sync_Seg = 1 TQ (seg_cnt == 0)
-            // TSEG1 = (tseg1 + 1) TQ. Ends at seg_cnt == 1 + tseg1
-            // TSEG2 = (tseg2 + 1) TQ. Ends at seg_cnt == 1 + tseg1 + 1 + tseg2
-            
-            // Generate Sample Point (End of TSEG1 + SJW Stretch)
-            if (seg_cnt == (8'd1 + tseg1 + tseg1_modifier)) begin
-                sample_point_en <= 1'b1;
-            end else begin
-                sample_point_en <= 1'b0;
-            end
-
-            // Generate Bit Done (End of TSEG2 - SJW Shrink)
-            // Total TQs = 1 + (tseg1 + 1) + (tseg2 + 1) = tseg1 + tseg2 + 3
-            // Since we start at 0, the last TQ is at count (tseg1 + tseg2 + 2)
-            if (seg_cnt >= (tseg1 + tseg1_modifier + tseg2 - tseg2_modifier + 8'd2)) begin
-                bit_done_en <= 1'b1;
-                seg_cnt     <= 8'd0; // Loop back to Sync_Seg
-            end else begin
-                bit_done_en <= 1'b0;
-                seg_cnt     <= seg_cnt + 1'b1;
-            end
-            
         end else begin
-            // Pulses only last for exactly 1 system clock cycle
             sample_point_en <= 1'b0;
             bit_done_en     <= 1'b0;
+            
+            if (tq_pulse) begin
+                if (tq_cnt >= (total_tq - 1'b1)) begin
+                    tq_cnt      <= 8'd0;
+                    bit_done_en <= 1'b1;
+                end else begin
+                    tq_cnt <= tq_cnt + 1'b1;
+                    if (tq_cnt == tseg1) begin 
+                        sample_point_en <= 1'b1;
+                    end
+                end
+            end
         end
     end
-
 endmodule
