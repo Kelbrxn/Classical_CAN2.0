@@ -33,6 +33,8 @@ module can_register_bank (
     localparam XCAN_TXOLFIFO_ECC_OFFSET = 8'hD0; 
     localparam XCAN_RXFIFO_ECC_OFFSET   = 8'hD4; 
 
+    
+
     logic [31:0] srr_reg, msr_reg, brpr_reg, btr_reg, f_brpr_reg, f_btr_reg;
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -58,6 +60,7 @@ module can_register_bank (
                     XCAN_F_BTR_OFFSET:  f_btr_reg      <= bus_wr_data;
                     XCAN_TRR_OFFSET:    tx_trigger     <= bus_wr_data[0]; 
                     XCAN_FSR_OFFSET:    inc_read_index <= bus_wr_data[7]; 
+                    default: ;
                 endcase
             end
         end
