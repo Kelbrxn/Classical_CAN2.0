@@ -112,4 +112,156 @@ module can_top #(
     assign tx_bit_from_fsm  = tx_bit_stuffed; 
 
     can_register_bank u_reg_bank (
-        .clk(clk), .rst_n(rst_n), .
+        .clk(clk), .rst_n(rst_n), .cs_regs(cs_regs), .bus_wr_e(bus_wr_e),
+        .bus_addr(bus_addr[7:0]), .bus_wr_data(bus_wr_data), .bus_rd_data(rd_data_regs),
+        .core_is_config(core_is_config), .core_is_normal(core_is_normal),
+        .tx_busy(tx_ready), .rx_fsr(rx_fsr_status), .soft_reset(soft_reset),
+        .out_mode(mode_reg), .out_baud(brpr_reg), .out_btr(btr_reg),
+        .out_f_baud(f_brpr_reg), .out_f_btr(f_btr_reg),
+        .tx_trigger(tx_trigger_pulse), .inc_read_index(inc_read_index_pulse)
+    );
+
+    acceptance_filter_bank u_filter_bank (
+        .clk(clk), .rst_n(rst_n), .cs_af(cs_af_bank), .bus_addr(bus_addr[11:0]),
+        .bus_wr_e(bus_wr_e), .bus_wr_data(bus_wr_data), .bus_rd_data(rd_data_af),
+        .rx_id_raw(din_core), .accept_frame(accept_frame_wire)
+    );
+
+    crc15_lfsr u_crc15 (
+        .clk(clk), .rst_n(rst_n), .clear(crc_clear_wire), .enable(crc_enable_wire),
+        .data_in(tx_bit_from_fsm ? tx_bit_stuffed : rx_bit_destuffed), .crc_out(crc_out_wire)
+    );
+
+    error_management u_error_mgr (
+        .clk(clk), .rst_n(rst_n), .tx_err_pulse(tx_err_pulse), .rx_err_pulse(rx_err_pulse),
+        .tx_ok_pulse(tx_done_wire), .rx_ok_pulse(rx_done_wire),
+        .err_passive_flag(err_passive_flag), .err_bus_off_flag(err_bus_off_flag),
+        .sample_point_en(sample_point_en), .rx_bit_destuffed(rx_bit_destuffed),
+        .recovery_done(), .tec_out(tec_wire), .rec_out(rec_wire)
+    );
+
+    interrupt_manager u_intr_mgr (
+        .clk(clk), .rst_n(rst_n), .tx_done_pulse(tx_done_wire),
+        .rx_done_pulse(rx_done_wire && accept_frame_wire), 
+        .error_pulse(tx_err_pulse || rx_err_pulse || crc_err_pulse),
+        .bus_off_pulse(err_bus_off_flag), .arb_lost_pulse(arb_lost_pulse),
+        .tx_empty_pulse(!tx_ready), .rx_oflw_pulse(1'b0), 
+        .cs_intr(cs_regs), .bus_addr(bus_addr[7:0]), .bus_wr_e(bus_wr_e), 
+        .bus_wr_data(bus_wr_data), .bus_rd_data(rd_data_intr), .irq(irq_out)
+    );
+
+    tx_mailbox_manager u_tx_mgr (
+        .clk_sys(clk), .rst_n(rst_n), .bus_addr(bus_addr), .bus_we(bus_wr_e),
+        .bus_wr_data(bus_wr_data), .bus_rd_data(rd_data_tx), 
+        .cs_tx(cs_tx_mailbox), .tx_trigger(tx_trigger_pulse), .tx_busy(), 
+        .clk_core(clk), .tx_ready(tx_ready), .tx_done(tx_done_wire), 
+        .addr_core(tx_addr_core), .dout_core(tx_dout_core)
+    );
+
+    rx_buffer_manager u_rx_mgr (
+        .rst_n(rst_n), .clk_sys(clk), .bus_addr(bus_addr), .bus_rd_data(rd_data_rx),
+        .cs_rx(cs_rx_fifo), .inc_read_index(inc_read_index_pulse), .rx_fsr(rx_fsr_status),
+        .clk_core(clk), .addr_core(rx_addr_core), .din_core(din_core),
+        .we_core(we_core), .rx_done(rx_done_wire)
+    );
+
+    protocol_fsm u_protocol_fsm (
+        .clk(clk), .rst_n(rst_n), .soft_reset(soft_reset || err_bus_off_flag),
+        .err_passive_flag(err_passive_flag),
+        .core_is_config(core_is_config), .core_is_normal(core_is_normal),
+        .sample_point_en(sample_point_en), .bit_done_en(bit_done_en),
+        .rx_bit_destuffed(rx_bit_destuffed), .tx_bit_stuffed(tx_bit_stuffed),
+        .tx_ready(tx_ready), .tx_done(tx_done_wire), .tx_addr_core(tx_addr_core),
+        .tx_dout_core(tx_dout_core), .rx_done(rx_done_wire), .we_core(we_core),
+        .rx_addr_core(rx_addr_core), .din_core(din_core), .crc_clear(crc_clear_wire),
+        .crc_enable(crc_enable_wire), .crc_out(crc_out_wire)
+    );
+
+    // ----------------------------------------------------------------
+    // ERROR DETECTION COMBINATIONAL LOGIC
+    // ----------------------------------------------------------------
+    always_comb begin
+        tx_err_pulse   = 1'b0; rx_err_pulse   = 1'b0;
+        arb_lost_pulse = 1'b0; crc_err_pulse  = 1'b0;
+        
+        if (sample_point_en && core_is_normal) begin
+            if (tx_bit_stuffed == 1'b1 && rx_bit_destuffed == 1'b0) begin
+                tx_err_pulse = 1'b1;
+            end
+            if (tx_bit_stuffed == 1'b0 && rx_bit_destuffed == 1'b1) begin
+                tx_err_pulse = 1'b1;
+            end
+        end
+    end
+
+    // ----------------------------------------------------------------
+    // BUS IDLE DETECTOR (Generates is_idle for sync_logic)
+    // ----------------------------------------------------------------
+    logic [3:0] recessive_cnt;
+    logic       is_bus_idle;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            recessive_cnt <= 4'd0;
+            is_bus_idle   <= 1'b1;
+        end else if (bit_done_en) begin
+            if (rx_bit_destuffed == 1'b1) begin
+                if (recessive_cnt < 4'd11) begin
+                    recessive_cnt <= recessive_cnt + 1'b1;
+                end else begin
+                    is_bus_idle <= 1'b1;
+                end
+            end else begin
+                recessive_cnt <= 4'd0;
+                is_bus_idle   <= 1'b0;
+            end
+        end
+    end
+
+    // ----------------------------------------------------------------
+    // INTERNAL WIRES FOR SYNC <-> BIT TIMING COMMUNICATION
+    // ----------------------------------------------------------------
+    wire       sync_restart_wire;
+    wire [7:0] tseg1_modifier_wire;
+    wire [7:0] tseg2_modifier_wire;
+    wire [7:0] current_seg_count_wire;
+
+    // ----------------------------------------------------------------
+    // SYNC LOGIC SUB-MODULE
+    // ----------------------------------------------------------------
+    sync_logic u_sync_logic (
+        .clk(clk),
+        .rst_n(rst_n),
+        .rx_pin(can_rx_pad),
+        .bit_done_en(bit_done_en),
+        .current_seg_count(current_seg_count_wire), // Reads from Bit Timing
+        .reg_btr(btr_reg),
+        .reg_f_btr(f_btr_reg),
+        .is_idle(is_bus_idle),
+        .is_data_phase(1'b0), // Tied to 0 for CAN 2.0B
+        .sync_restart(sync_restart_wire),           // Drives to Bit Timing
+        .tseg1_modifier(tseg1_modifier_wire),       // Drives to Bit Timing
+        .tseg2_modifier(tseg2_modifier_wire)        // Drives to Bit Timing
+    );
+
+    // ----------------------------------------------------------------
+    // BIT TIMING SUB-MODULE
+    // ----------------------------------------------------------------
+    can_bit_timing u_bit_timing (
+        .clk(clk),
+        .rst_n(rst_n),
+        .baud_reg(brpr_reg),
+        .btr_reg(btr_reg),
+        
+        // Modifiers received from Sync Logic
+        .sync_restart(sync_restart_wire),
+        .tseg1_modifier(tseg1_modifier_wire),
+        .tseg2_modifier(tseg2_modifier_wire),
+        
+        // Outputs to the rest of the system
+        .sample_point_en(sample_point_en),
+        .bit_done_en(bit_done_en),
+        .current_seg_count(current_seg_count_wire)
+    );
+
+endmodule
