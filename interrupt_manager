@@ -50,6 +50,7 @@ module interrupt_manager (
                 XCAN_ISR_OFFSET: bus_rd_data = ISR;
                 XCAN_IER_OFFSET: bus_rd_data = IER;
                 XCAN_ICR_OFFSET: bus_rd_data = 32'h0; 
+                default: bus_rd_data = 32'h0;
             endcase
         end
     end
