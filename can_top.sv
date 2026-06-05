@@ -1,3 +1,6 @@
+/* verilator lint_off MULTITOP */
+`timescale 1ns / 1ps
+
 module can_top #(
     parameter DATA_WIDTH = 32,
     parameter ADDRESS = 32
@@ -41,49 +44,29 @@ module can_top #(
         .ADDRESS(ADDRESS),
         .DATA_WIDTH(DATA_WIDTH)
     ) u_axi_slave (
-        .ACLK(clk),
-        .ARESETn(rst_n),
-        .ARADDR(s_axi_araddr),
-        .ARVALID(s_axi_arvalid),
-        .ARREADY(s_axi_arready),
-        .RREADY(s_axi_rready),
-        .RVALID(s_axi_rvalid),
-        .RDATA(s_axi_rdata),
-        .RRESP(s_axi_rresp),
-        .AWADDR(s_axi_awaddr),
-        .AWVALID(s_axi_awvalid),
-        .AWREADY(s_axi_awready),
-        .WDATA(s_axi_wdata),
-        .WVALID(s_axi_wvalid),
-        .WSTRB(s_axi_wstrb),
-        .WREADY(s_axi_wready),
-        .BREADY(s_axi_bready),
-        .BVALID(s_axi_bvalid),
-        .BRESP(s_axi_bresp),
-        
-        .ip_addr(bus_addr),
-        .ip_wdata(bus_wr_data),
-        .ip_write_en(bus_wr_e),
-        .ip_read_en(bus_rd_e),
-        .ip_rdata(bus_rd_data)
+        .ACLK(clk), .ARESETn(rst_n),
+        .ARADDR(s_axi_araddr), .ARVALID(s_axi_arvalid), .ARREADY(s_axi_arready),
+        .RREADY(s_axi_rready), .RVALID(s_axi_rvalid), .RDATA(s_axi_rdata), .RRESP(s_axi_rresp),
+        .AWADDR(s_axi_awaddr), .AWVALID(s_axi_awvalid), .AWREADY(s_axi_awready),
+        .WDATA(s_axi_wdata), .WVALID(s_axi_wvalid), .WSTRB(s_axi_wstrb), .WREADY(s_axi_wready),
+        .BREADY(s_axi_bready), .BVALID(s_axi_bvalid), .BRESP(s_axi_bresp),
+        .ip_addr(bus_addr), .ip_wdata(bus_wr_data), .ip_write_en(bus_wr_e),
+        .ip_read_en(bus_rd_e), .ip_rdata(bus_rd_data)
     );
 
     // Internal Chip Selects from your Decoder
     wire cs_regs, cs_af_bank, cs_tx_mailbox, cs_rx_fifo;
 
     address_decoder u_decoder (
-        .addr(bus_addr),
-        .cs_regs(cs_regs),
-        .cs_af_bank(cs_af_bank),
-        .cs_tx_mailbox(cs_tx_mailbox),
-        .cs_rx_fifo(cs_rx_fifo)
+        .addr(bus_addr), .cs_regs(cs_regs), .cs_af_bank(cs_af_bank),
+        .cs_tx_mailbox(cs_tx_mailbox), .cs_rx_fifo(cs_rx_fifo)
     );
 
     wire soft_reset, core_is_config, core_is_normal;
     wire rx_bit_clean, rx_bit_to_core, tx_bit_from_fsm;
     wire rx_bit_destuffed, tx_bit_stuffed;
     wire [31:0] btr_reg, f_btr_reg, brpr_reg, f_brpr_reg;
-    wire sample_point_en, bit_done_en;
+    logic sample_point_en, bit_done_en;
     wire [31:0] mode_reg;
     wire mode_loopback, mode_silent;
     wire tx_trigger_pulse, inc_read_index_pulse;
@@ -110,18 +93,6 @@ module can_top #(
     wire [31:0] rd_data_regs, rd_data_intr, rd_data_af, rd_data_tx, rd_data_rx;
     assign bus_rd_data = rd_data_regs | rd_data_intr | rd_data_af | rd_data_tx | rd_data_rx;
 
-    // ----------------------------------------------------------------
-    // INSTANTIATE BIT TIMING LOGIC
-    // ----------------------------------------------------------------
-    can_bit_timing u_bit_timing (
-        .clk(clk),
-        .rst_n(rst_n),
-        .baud_reg(brpr_reg),
-        .btr_reg(btr_reg),
-        .sample_point_en(sample_point_en),
-        .bit_done_en(bit_done_en)
-    );
-
     can_bus_conditioner u_conditioner (
         .clk(clk), .rst_n(rst_n), .async_rx_pad_in(can_rx_pad), .rx_bit_clean(rx_bit_clean)
     );
@@ -146,9 +117,7 @@ module can_top #(
     );
 
     acceptance_filter_bank u_filter_bank (
-        .clk(clk), .rst_n(rst_n), 
-        .cs_af(cs_af_bank),          
-        .bus_addr(bus_addr[11:0]),
+        .clk(clk), .rst_n(rst_n), .cs_af(cs_af_bank), .bus_addr(bus_addr[11:0]),
         .bus_wr_e(bus_wr_e), .bus_wr_data(bus_wr_data), .bus_rd_data(rd_data_af),
         .rx_id_raw(din_core), .accept_frame(accept_frame_wire)
     );
@@ -172,24 +141,21 @@ module can_top #(
         .error_pulse(tx_err_pulse || rx_err_pulse || crc_err_pulse),
         .bus_off_pulse(err_bus_off_flag), .arb_lost_pulse(arb_lost_pulse),
         .tx_empty_pulse(!tx_ready), .rx_oflw_pulse(1'b0), 
-        .cs_intr(cs_regs),           
-        .bus_addr(bus_addr[7:0]), .bus_wr_e(bus_wr_e), .bus_wr_data(bus_wr_data),
-        .bus_rd_data(rd_data_intr), .irq(irq_out)
+        .cs_intr(cs_regs), .bus_addr(bus_addr[7:0]), .bus_wr_e(bus_wr_e), 
+        .bus_wr_data(bus_wr_data), .bus_rd_data(rd_data_intr), .irq(irq_out)
     );
 
     tx_mailbox_manager u_tx_mgr (
         .clk_sys(clk), .rst_n(rst_n), .bus_addr(bus_addr), .bus_we(bus_wr_e),
         .bus_wr_data(bus_wr_data), .bus_rd_data(rd_data_tx), 
-        .cs_tx(cs_tx_mailbox),       
-        .tx_trigger(tx_trigger_pulse), .tx_busy(), .clk_core(clk),
-        .tx_ready(tx_ready), .tx_done(tx_done_wire), .addr_core(tx_addr_core),
-        .dout_core(tx_dout_core)
+        .cs_tx(cs_tx_mailbox), .tx_trigger(tx_trigger_pulse), .tx_busy(), 
+        .clk_core(clk), .tx_ready(tx_ready), .tx_done(tx_done_wire), 
+        .addr_core(tx_addr_core), .dout_core(tx_dout_core)
     );
 
     rx_buffer_manager u_rx_mgr (
         .rst_n(rst_n), .clk_sys(clk), .bus_addr(bus_addr), .bus_rd_data(rd_data_rx),
-        .cs_rx(cs_rx_fifo),          
-        .inc_read_index(inc_read_index_pulse), .rx_fsr(rx_fsr_status),
+        .cs_rx(cs_rx_fifo), .inc_read_index(inc_read_index_pulse), .rx_fsr(rx_fsr_status),
         .clk_core(clk), .addr_core(rx_addr_core), .din_core(din_core),
         .we_core(we_core), .rx_done(rx_done_wire)
     );
@@ -206,25 +172,80 @@ module can_top #(
         .crc_enable(crc_enable_wire), .crc_out(crc_out_wire)
     );
 
-
-always_comb begin
+    // ----------------------------------------------------------------
+    // ERROR DETECTION COMBINATIONAL LOGIC
+    // ----------------------------------------------------------------
+    always_comb begin
         tx_err_pulse   = 1'b0; rx_err_pulse   = 1'b0;
         arb_lost_pulse = 1'b0; crc_err_pulse  = 1'b0;
         
         if (sample_point_en && core_is_normal) begin
-            // Bit Error: Transmitting a Recessive (1) but sampling a Dominant (0)
-            // This is exactly what our testbench is forcing!
             if (tx_bit_stuffed == 1'b1 && rx_bit_destuffed == 1'b0) begin
                 tx_err_pulse = 1'b1;
             end
-            
-            // Bit Error: Transmitting a Dominant (0) but sampling a Recessive (1)
-            // (This usually indicates a severe hardware fault in the transceiver)
             if (tx_bit_stuffed == 1'b0 && rx_bit_destuffed == 1'b1) begin
                 tx_err_pulse = 1'b1;
             end
         end
     end
+
+    // ----------------------------------------------------------------
+    // BUS IDLE DETECTOR (Generates is_idle for sync_logic)
+    // ----------------------------------------------------------------
+    logic [3:0] recessive_cnt;
+    logic       is_bus_idle;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            recessive_cnt <= 4'd0;
+            is_bus_idle   <= 1'b1;
+        end else if (bit_done_en) begin
+            if (rx_bit_destuffed == 1'b1) begin
+                if (recessive_cnt < 4'd11) begin
+                    recessive_cnt <= recessive_cnt + 1'b1;
+                end else begin
+                    is_bus_idle <= 1'b1;
+                end
+            end else begin
+                recessive_cnt <= 4'd0;
+                is_bus_idle   <= 1'b0;
+            end
+        end
+    end
+
+    // ----------------------------------------------------------------
+    // SYNC LOGIC INSTANTIATION
+    // ----------------------------------------------------------------
+    wire       sync_restart_wire;
+    wire [7:0] tseg1_modifier_wire;
+    wire [7:0] tseg2_modifier_wire;
+    logic [7:0] tq_cnt; // Time Quantum Counter (Declared here for mapping)
+
+    sync_logic u_sync_logic (
+        .clk(clk),
+        .rst_n(rst_n),
+        .rx_pin(can_rx_pad),
+        .bit_done_en(bit_done_en),
+        .current_seg_count(tq_cnt),
+        .reg_btr(btr_reg),
+        .reg_f_btr(f_btr_reg),
+        .is_idle(is_bus_idle),
+        .is_data_phase(1'b0), // Tied to 0 since this is CAN 2.0B
+        .sync_restart(sync_restart_wire),
+        .tseg1_modifier(tseg1_modifier_wire),
+        .tseg2_modifier(tseg2_modifier_wire)
+    );
+
+    // ----------------------------------------------------------------
+    // BIT TIMING LOGIC (Inline) - Integrated with Sync Modifiers
+    // ----------------------------------------------------------------
+    wire [7:0] tseg1 = btr_reg[7:0];
+    wire [7:0] tseg2 = btr_reg[14:8];
+    
+    // Apply dynamic modifiers from sync_logic
+    wire [7:0] active_tseg1 = tseg1 + tseg1_modifier_wire;
+    wire [7:0] active_tseg2 = tseg2 - tseg2_modifier_wire;
+    wire [7:0] total_tq     = 8'd1 + active_tseg1 + active_tseg2; 
 
     logic [7:0] brp_cnt;
     logic       tq_pulse;
@@ -234,7 +255,11 @@ always_comb begin
             brp_cnt  <= 8'd0;
             tq_pulse <= 1'b0;
         end else begin
-            if (brp_cnt >= baud_reg[7:0]) begin
+            // sync_restart clears the prescaler to hard-sync to the edge
+            if (sync_restart_wire) begin
+                brp_cnt  <= 8'd0;
+                tq_pulse <= 1'b1;
+            end else if (brp_cnt >= brpr_reg[7:0]) begin // FIXED: was baud_reg
                 brp_cnt  <= 8'd0;
                 tq_pulse <= 1'b1;
             end else begin
@@ -243,8 +268,6 @@ always_comb begin
             end
         end
     end
-
-    logic [7:0] tq_cnt;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -255,17 +278,20 @@ always_comb begin
             sample_point_en <= 1'b0;
             bit_done_en     <= 1'b0;
             
-            if (tq_pulse) begin
+            if (sync_restart_wire) begin
+                tq_cnt <= 8'd0; // Hard Sync resets the quantum counter
+            end else if (tq_pulse) begin
                 if (tq_cnt >= (total_tq - 1'b1)) begin
                     tq_cnt      <= 8'd0;
                     bit_done_en <= 1'b1;
                 end else begin
                     tq_cnt <= tq_cnt + 1'b1;
-                    if (tq_cnt == tseg1) begin 
+                    if (tq_cnt == active_tseg1) begin 
                         sample_point_en <= 1'b1;
                     end
                 end
             end
         end
     end
+
 endmodule
