@@ -4,7 +4,7 @@ module protocol_fsm #(
     input  logic                  clk,
     input  logic                  rst_n,
     input  logic                  soft_reset,
-    input  logic                  err_passive_flag, // <--- NEW INPUT
+    input  logic                  err_passive_flag,
     output logic                  core_is_config,
     output logic                  core_is_normal,
     input  logic                  sample_point_en, 
@@ -42,8 +42,9 @@ module protocol_fsm #(
     logic [6:0] ctrl_target; 
     logic [3:0] current_dlc; 
     logic [6:0] data_target;
+    logic is_tx_node, is_ext_id;
+    wire  is_rx_node, is_std_id;
     
-    wire is_tx_node, is_rx_node, is_ext_id, is_std_id;
     assign is_rx_node = ~is_tx_node;
     assign is_std_id  = ~is_ext_id;
 
@@ -51,7 +52,7 @@ module protocol_fsm #(
     assign core_is_normal = (sys_state == SYS_ACTIVE || sys_state == SYS_PASSIVE);
 
     // ====================================================================
-    // System State Machine (UPDATED TO HANDLE SYS_PASSIVE)
+    // System State Machine 
     // ====================================================================
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -59,7 +60,7 @@ module protocol_fsm #(
         end else if (soft_reset) begin
             sys_state <= SYS_OFFLINE;
         end else if (err_passive_flag) begin
-            sys_state <= SYS_PASSIVE; // <--- DYNAMIC PASSIVE TRANSITION
+            sys_state <= SYS_PASSIVE; 
         end else begin
             sys_state <= SYS_ACTIVE;
         end
