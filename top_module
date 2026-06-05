@@ -110,6 +110,18 @@ module can_top #(
     wire [31:0] rd_data_regs, rd_data_intr, rd_data_af, rd_data_tx, rd_data_rx;
     assign bus_rd_data = rd_data_regs | rd_data_intr | rd_data_af | rd_data_tx | rd_data_rx;
 
+    // ----------------------------------------------------------------
+    // INSTANTIATE BIT TIMING LOGIC
+    // ----------------------------------------------------------------
+    can_bit_timing u_bit_timing (
+        .clk(clk),
+        .rst_n(rst_n),
+        .baud_reg(brpr_reg),
+        .btr_reg(btr_reg),
+        .sample_point_en(sample_point_en),
+        .bit_done_en(bit_done_en)
+    );
+
     can_bus_conditioner u_conditioner (
         .clk(clk), .rst_n(rst_n), .async_rx_pad_in(can_rx_pad), .rx_bit_clean(rx_bit_clean)
     );
@@ -132,9 +144,6 @@ module can_top #(
         .out_f_baud(f_brpr_reg), .out_f_btr(f_btr_reg),
         .tx_trigger(tx_trigger_pulse), .inc_read_index(inc_read_index_pulse)
     );
-
-    assign sample_point_en = 1'b1; 
-    assign bit_done_en     = 1'b1; 
 
     acceptance_filter_bank u_filter_bank (
         .clk(clk), .rst_n(rst_n), 
@@ -197,12 +206,66 @@ module can_top #(
         .crc_enable(crc_enable_wire), .crc_out(crc_out_wire)
     );
 
-    always_comb begin
+
+always_comb begin
         tx_err_pulse   = 1'b0; rx_err_pulse   = 1'b0;
         arb_lost_pulse = 1'b0; crc_err_pulse  = 1'b0;
+        
         if (sample_point_en && core_is_normal) begin
-            if (tx_bit_stuffed == 1'b0 && rx_bit_destuffed == 1'b1) tx_err_pulse = 1'b1;
-            if (tx_bit_stuffed == 1'b1 && rx_bit_destuffed == 1'b0) arb_lost_pulse = 1'b1;
+            // Bit Error: Transmitting a Recessive (1) but sampling a Dominant (0)
+            // This is exactly what our testbench is forcing!
+            if (tx_bit_stuffed == 1'b1 && rx_bit_destuffed == 1'b0) begin
+                tx_err_pulse = 1'b1;
+            end
+            
+            // Bit Error: Transmitting a Dominant (0) but sampling a Recessive (1)
+            // (This usually indicates a severe hardware fault in the transceiver)
+            if (tx_bit_stuffed == 1'b0 && rx_bit_destuffed == 1'b1) begin
+                tx_err_pulse = 1'b1;
+            end
+        end
+    end
+endmodule
+    logic [7:0] brp_cnt;
+    logic       tq_pulse;
+    
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            brp_cnt  <= 8'd0;
+            tq_pulse <= 1'b0;
+        end else begin
+            if (brp_cnt >= baud_reg[7:0]) begin
+                brp_cnt  <= 8'd0;
+                tq_pulse <= 1'b1;
+            end else begin
+                brp_cnt  <= brp_cnt + 1'b1;
+                tq_pulse <= 1'b0;
+            end
+        end
+    end
+
+    logic [7:0] tq_cnt;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            tq_cnt          <= 8'd0;
+            sample_point_en <= 1'b0;
+            bit_done_en     <= 1'b0;
+        end else begin
+            sample_point_en <= 1'b0;
+            bit_done_en     <= 1'b0;
+            
+            if (tq_pulse) begin
+                if (tq_cnt >= (total_tq - 1'b1)) begin
+                    tq_cnt      <= 8'd0;
+                    bit_done_en <= 1'b1;
+                end else begin
+                    tq_cnt <= tq_cnt + 1'b1;
+                    if (tq_cnt == tseg1) begin 
+                        sample_point_en <= 1'b1;
+                    end
+                end
+            end
         end
     end
 endmodule
