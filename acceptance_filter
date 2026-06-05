@@ -31,6 +31,7 @@ module acceptance_filter_bank #(
                 LEGACY_AFR_ID:   filter_reg[0] <= bus_wr_data;
                 CANFD2_AFR_MASK: mask_reg[1]   <= bus_wr_data;
                 CANFD2_AFR_ID:   filter_reg[1] <= bus_wr_data;
+                default: ;
             endcase
         end
     end
@@ -43,6 +44,7 @@ module acceptance_filter_bank #(
                 LEGACY_AFR_ID:   bus_rd_data = filter_reg[0];
                 CANFD2_AFR_MASK: bus_rd_data = mask_reg[1];
                 CANFD2_AFR_ID:   bus_rd_data = filter_reg[1];
+                default: bus_rd_data = 32'h0;
             endcase
         end
     end
