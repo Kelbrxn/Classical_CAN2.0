@@ -21,7 +21,7 @@ create_clock -period 8.000 -name sys_clk_pin -waveform {0.000 4.000} [get_ports 
 # --- CAN TX Pin (can_tx_pad) ---
 # Change the PACKAGE_PIN to match the PMOD or Header pin on your specific board.
 # Example: "W14" is a common PMOD pin on the PYNQ-Z2.
-set_property PACKAGE_PIN W14 [get_ports can_tx_pad]
+set_property PACKAGE_PIN B15 [get_ports can_tx_pad]
 set_property IOSTANDARD LVCMOS33 [get_ports can_tx_pad]
 set_property DRIVE 8 [get_ports can_tx_pad]
 set_property SLEW FAST [get_ports can_tx_pad]
@@ -29,7 +29,7 @@ set_property SLEW FAST [get_ports can_tx_pad]
 # --- CAN RX Pin (can_rx_pad) ---
 # Change the PACKAGE_PIN to match the adjacent PMOD pin.
 # Example: "Y14" is a common PMOD pin on the PYNQ-Z2.
-set_property PACKAGE_PIN Y14 [get_ports can_rx_pad]
+set_property PACKAGE_PIN B16 [get_ports can_rx_pad]
 set_property IOSTANDARD LVCMOS33 [get_ports can_rx_pad]
 # Optional: Enable internal pull-up if your external transceiver requires it
 # set_property PULLUP true [get_ports can_rx_pad]
